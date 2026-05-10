@@ -1,20 +1,8 @@
 {
   "name": "quad-pong",
-  "version": "1.0.0",
-  "description": "Multiplayer Quad Pong — up to 4 players from different devices",
+  "version": "5.0.0",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.18.2", "socket.io": "^4.7.2" },
+  "engines": { "node": ">=18.0.0" }
 }
