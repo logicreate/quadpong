@@ -117,11 +117,14 @@ body {
   -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 
 /* ── Game ── */
-#gw { width:100dvw; height:100dvh; display:none; flex-direction:column;
-  align-items:center; justify-content:center; gap:4px; }
+#gw { position:fixed; inset:0; display:none; flex-direction:column;
+  align-items:center; justify-content:center; gap:4px;
+  background: radial-gradient(ellipse at 35% 38%, #2068cc 0%, #0c2d72 48%, #060f3a 100%); }
 #gw.on { display:flex; }
-#c { display:block; border-radius:16px; box-shadow:0 12px 50px rgba(0,0,30,.5); touch-action:none; cursor:none; }
-#hint { font-size:.68rem; opacity:.3; text-align:center; }
+#c { display:block; border-radius:14px; box-shadow:0 8px 40px rgba(0,0,30,.6);
+  touch-action:none; cursor:none;
+  max-width:calc(100dvw - 10px); max-height:calc(100dvh - 46px); }
+#hint { font-size:.65rem; opacity:.28; text-align:center; padding:0 8px; }
 
 /* ── Game over ── */
 .goRows { display:flex; flex-direction:column; gap:.32rem; width:100%; }
@@ -408,8 +411,20 @@ socket.on('lobby',({players,mode,names})=>{
 });
 
 socket.on('countdown',()=>{
-  show('s-cd'); let n=3; document.getElementById('cdn').textContent=n;
-  const t=setInterval(()=>{n--;if(n<=0){clearInterval(t);initGame();}else document.getElementById('cdn').textContent=n;},1000);
+  // Pre-init canvas so field is visible during countdown
+  setupCanvas();
+  document.querySelectorAll('.sc').forEach(s=>s.classList.remove('on'));
+  document.getElementById('gw').classList.add('on');
+  document.getElementById('hint').textContent=`${pname()} · ${PNAME[mySide]}  |  ${PCTRL[mySide]}`;
+  const isV=mySide==='left'||mySide==='right';
+  localPos=(isV?GH:GW)/2-PAD_LEN/2; localVel=0;
+  let n=3, cdAnimId;
+  const cdLoop=()=>{ drawCountdownFrame(n); cdAnimId=requestAnimationFrame(cdLoop); };
+  cdAnimId=requestAnimationFrame(cdLoop);
+  const t=setInterval(()=>{
+    n--;
+    if(n<=0){ clearInterval(t); cancelAnimationFrame(cdAnimId); initGame(); }
+  },1000);
 });
 
 socket.on('state',s=>{gs=s;});
@@ -440,24 +455,32 @@ function joinRoom(){
   socket.emit('join',{roomId:c,name:pname()});
 }
 
-// ─── Game init ────────────────────────────────────────────────────
-function initGame(){
+// ─── Canvas setup (called once, may be before game start) ────────
+let canvasReady=false;
+function setupCanvas(){
+  if(canvasReady)return;
+  canvasReady=true;
   canvas=document.getElementById('c'); ctx=canvas.getContext('2d');
   resize(); window.addEventListener('resize',resize);
-  canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect();mouseX=(e.clientX-r.left)/iSc-WALL;mouseY=(e.clientY-r.top)/iSc-WALL+(VW/iSc);});
-  // Correct mouse to game coords: gx(x)=VW+x*iSc → x=(px-VW)/iSc
+  if(window.visualViewport) window.visualViewport.addEventListener('resize',resize);
   canvas.addEventListener('mousemove',e=>{
     const r=canvas.getBoundingClientRect();
-    const px=(e.clientX-r.left), py=(e.clientY-r.top);
-    mouseX=(px-VW)/iSc; mouseY=(py-VW)/iSc;
+    mouseX=(e.clientX-r.left-VW)/iSc; mouseY=(e.clientY-r.top-VW)/iSc;
   });
-  const onT=e=>{e.preventDefault();const r=canvas.getBoundingClientRect(),t=e.touches[0];mouseX=(t.clientX-r.left-VW)/iSc;mouseY=(t.clientY-r.top-VW)/iSc;};
+  const onT=e=>{
+    e.preventDefault();
+    const r=canvas.getBoundingClientRect(),t=e.touches[0];
+    mouseX=(t.clientX-r.left-VW)/iSc; mouseY=(t.clientY-r.top-VW)/iSc;
+  };
   canvas.addEventListener('touchstart',onT,{passive:false});
   canvas.addEventListener('touchmove', onT,{passive:false});
   window.addEventListener('keydown',e=>{keys[e.key]=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();});
   window.addEventListener('keyup',e=>keys[e.key]=false);
-  document.getElementById('hint').textContent=`${pname()} · ${PNAME[mySide]}  |  ${PCTRL[mySide]}`;
-  document.getElementById('gw').classList.add('on');
+}
+
+// ─── Game init (starts actual gameplay loop) ──────────────────────
+function initGame(){
+  setupCanvas();
   const isV=mySide==='left'||mySide==='right';
   localPos=(isV?GH:GW)/2-PAD_LEN/2; localVel=0;
   sendTimer=setInterval(sendPos,1000/60);
@@ -465,18 +488,123 @@ function initGame(){
   animId=requestAnimationFrame(loop);
 }
 
+// ─── Countdown field preview ──────────────────────────────────────
+function drawCountdownFrame(n){
+  if(!ctx)return;
+  const all=myMode===2?['left','right']:SIDES;
+  // Background
+  const bg=ctx.createRadialGradient(S*.4,S*.35,0,S*.5,S*.5,S*.75);
+  bg.addColorStop(0,'#2068cc');bg.addColorStop(.5,'#1240a0');bg.addColorStop(1,'#070f3a');
+  ctx.fillStyle=bg;
+  if(ctx.roundRect){ctx.beginPath();ctx.roundRect(0,0,S,S,14);ctx.fill();}else ctx.fillRect(0,0,S,S);
+  // Court inner
+  const ix=VW,iy=VW,iw=S-2*VW,ih=S-2*VW;
+  ctx.fillStyle='rgba(40,100,200,.12)'; ctx.fillRect(ix,iy,iw,ih);
+  // Dashed grid
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=.8;
+  for(let i=1;i<6;i++){
+    const x=ix+iw/6*i,y=iy+ih/6*i;
+    ctx.beginPath();ctx.moveTo(x,iy);ctx.lineTo(x,iy+ih);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(ix,y);ctx.lineTo(ix+iw,y);ctx.stroke();
+  }
+  // Center cross dashed
+  ctx.strokeStyle='rgba(255,255,255,.1)';ctx.setLineDash([4,8]);
+  ctx.beginPath();ctx.moveTo(S/2,iy);ctx.lineTo(S/2,iy+ih);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(ix,S/2);ctx.lineTo(ix+iw,S/2);ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Wall strips + paddles at start positions
+  all.forEach(s=>{
+    const col=PCOL[s],isMe=s===mySide;
+    // Wall strip
+    let wGr;
+    if(s==='left'){wGr=ctx.createLinearGradient(0,0,VW,0);}
+    else if(s==='right'){wGr=ctx.createLinearGradient(S,0,S-VW,0);}
+    else if(s==='top'){wGr=ctx.createLinearGradient(0,0,0,VW);}
+    else{wGr=ctx.createLinearGradient(0,S,0,S-VW);}
+    wGr.addColorStop(0,isMe?col+'80':col+'40');wGr.addColorStop(1,'transparent');
+    ctx.fillStyle=wGr;
+    if(s==='left')  ctx.fillRect(0,0,VW,S);
+    if(s==='right') ctx.fillRect(S-VW,0,VW,S);
+    if(s==='top')   ctx.fillRect(0,0,S,VW);
+    if(s==='bottom')ctx.fillRect(0,S-VW,S,VW);
+    // Paddle at default center position
+    const isV2=s==='left'||s==='right';
+    const defPos=((isV2?GH:GW)/2-PAD_LEN/2);
+    const dp=s===mySide?localPos:defPos;
+    const pw=gl(PAD_W),pl=gl(PAD_LEN);
+    let rx,ry,rw,rh;
+    if(s==='left')  {rx=gx(WALL);         ry=gy(dp);rw=pw;rh=pl;}
+    if(s==='right') {rx=gx(GW-WALL-PAD_W);ry=gy(dp);rw=pw;rh=pl;}
+    if(s==='top')   {rx=gx(dp);ry=gy(WALL);rw=pl;rh=pw;}
+    if(s==='bottom'){rx=gx(dp);ry=gy(GH-WALL-PAD_W);rw=pl;rh=pw;}
+    ctx.shadowColor=isMe?col:'transparent'; ctx.shadowBlur=isMe?16*iSc:0;
+    ctx.fillStyle=isMe?col:col+'99';
+    if(ctx.roundRect){ctx.beginPath();ctx.roundRect(rx,ry,rw,rh,3*iSc);ctx.fill();}else ctx.fillRect(rx,ry,rw,rh);
+    ctx.shadowBlur=0;
+    // "ВЫ" label on player's paddle
+    if(isMe){
+      ctx.fillStyle='rgba(255,255,255,.9)'; ctx.textAlign='center';
+      ctx.font=`bold ${Math.max(gl(11),7)}px system-ui`;
+      if(isV2) ctx.fillText('ВЫ →',rx+pw/2+(isMe&&s==='right'?-gl(28):gl(28)),ry+pl/2+gl(4));
+      else     ctx.fillText('ВЫ',rx+pl/2,ry+pw/2+(s==='top'?gl(24):-gl(16)));
+    }
+    // Character icon
+    const iconR=VW*.42;
+    let icx,icy;
+    if(s==='left')  {icx=VW*.5;icy=S/2;}
+    if(s==='right') {icx=S-VW*.5;icy=S/2;}
+    if(s==='top')   {icx=S/2;icy=VW*.5;}
+    if(s==='bottom'){icx=S/2;icy=S-VW*.5;}
+    cartoonBall(icx,icy,iconR,col,s==='left'?1:s==='right'?-1:0,s==='top'?1:s==='bottom'?-1:0,'normal',true);
+  });
+
+  // Semi-dark overlay
+  ctx.fillStyle='rgba(0,0,18,.52)'; ctx.fillRect(0,0,S,S);
+
+  // Big countdown number with gradient
+  ctx.textAlign='center';
+  ctx.font=`900 ${S*.18}px system-ui`;
+  const cdg=ctx.createLinearGradient(S/2,S/2-S*.1,S/2,S/2+S*.1);
+  cdg.addColorStop(0,'#a0c8ff'); cdg.addColorStop(1,'#60eacc');
+  ctx.fillStyle=cdg;
+  ctx.fillText(n,S/2,S/2+S*.07);
+
+  // Sub-text
+  ctx.font=`500 ${Math.max(S*.03,11)}px system-ui`;
+  ctx.fillStyle='rgba(255,255,255,.5)';
+  ctx.fillText('Найди свою доску на поле',S/2,S/2+S*.17);
+
+  // Pulsing arrow pointing to player's side
+  const pulse=.7+.3*Math.sin(performance.now()/250);
+  ctx.fillStyle=`rgba(${parseInt(PCOL[mySide].slice(1,3),16)},${parseInt(PCOL[mySide].slice(3,5),16)},${parseInt(PCOL[mySide].slice(5,7),16)},${pulse})`;
+  ctx.font=`${Math.max(S*.045,14)}px system-ui`;
+  const arrowOffset=S*.06;
+  if(mySide==='left')  ctx.fillText('◀',VW+arrowOffset,S/2+S*.015);
+  if(mySide==='right') ctx.fillText('▶',S-VW-arrowOffset,S/2+S*.015);
+  if(mySide==='top')   ctx.fillText('▲',S/2,VW+arrowOffset);
+  if(mySide==='bottom')ctx.fillText('▼',S/2,S-VW-arrowOffset);
+}
+
 function resize(){
-  const vw=window.innerWidth, vh=window.innerHeight;
-  const landscape=vw>vh;
+  // Use visualViewport for accurate mobile height (excludes browser chrome)
+  const vp = window.visualViewport || {width: window.innerWidth, height: window.innerHeight};
+  const vw = vp.width, vh = vp.height;
   let sz;
-  if(vw<600){sz=landscape?Math.min(vh-50,520):Math.min(vw-16,480);}
-  else if(vw<1024){sz=Math.min(vw*.88,vh-.88,560);}
-  else{sz=Math.min(vw*.75,vh-80,640);}
-  S=Math.round(sz); canvas.width=canvas.height=S;
-  // Visual wall: 5.2% of canvas, min 26px, such that ball never enters it
-  VW=Math.max(Math.round(S*.052),26);
-  // Inner scale: [0,GW] → [VW, S-VW]
-  iSc=(S-2*VW)/GW;
+  if(vw < 500){
+    // Phone: square canvas that fits both dimensions, leave room for hint
+    sz = Math.min(vw - 8, vh - 44);
+  } else if(vw < 900){
+    // Tablet: slightly smaller
+    sz = Math.min(vw * 0.82, vh - 44, 460);
+  } else {
+    // Desktop: compact field
+    sz = Math.min(vw * 0.58, vh - 60, 490);
+  }
+  S = Math.round(Math.max(sz, 260));
+  canvas.width = canvas.height = S;
+  VW = Math.max(Math.round(S * 0.055), 24);
+  iSc = (S - 2*VW) / GW;
 }
 
 // ─── Paddle control ───────────────────────────────────────────────
@@ -576,10 +704,25 @@ function draw(){
     else{ctx.translate(S/2,S-VW*.5);}
     ctx.textAlign='center';
     ctx.font=`600 ${fs}px system-ui`;
-    ctx.fillStyle=alive?col:'rgba(180,80,80,.7)';
-    ctx.fillText(nm,0,iconR+fs*1.0);
+    // Measure text width to center (ball + gap + text) as a unit
+    const textW=ctx.measureText(nm).width;
+    const ballR2=Math.max(fs*.4,4);
+    const gap2=fs*.28;
+    const totalLabelW=ballR2*2+gap2+textW;
+    const startLX=-totalLabelW/2;
+    const labelY=iconR+fs*1.05;
+    // Colored ball circle
+    ctx.fillStyle=alive?col:'rgba(160,80,80,.75)';
+    ctx.beginPath();ctx.arc(startLX+ballR2,labelY-fs*.28,ballR2,0,Math.PI*2);ctx.fill();
+    // White name text
+    ctx.fillStyle=alive?'rgba(255,255,255,.95)':'rgba(200,160,160,.7)';
+    ctx.textAlign='left';
+    ctx.fillText(nm,startLX+ballR2*2+gap2,labelY);
+    ctx.textAlign='center';
+    // Lives emoji
     ctx.font=`${fs*.9}px system-ui`;
-    ctx.fillText(lifeEmoji,0,iconR+fs*2.1);
+    ctx.fillStyle='rgba(255,255,255,.75)';
+    ctx.fillText(lifeEmoji,0,iconR+fs*2.15);
     ctx.restore();
 
     // Score
