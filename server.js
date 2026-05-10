@@ -16,21 +16,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 const GW = 800, GH = 800;
 const WALL       = 14;
 const PAD_W      = 14;
-const PAD_LEN    = 90;
+const PAD_LEN    = 180;   // doubled from 90
 const BALL_R     = 12;
-const STAR_R     = 14;
 const APPLE_R    = 17;
-const FIREBALL_R = 16;
 const INIT_SPD   = 280;
 const MAX_SPD    = 560;
 const ACCEL_RATE = 5;
 const LIVES      = 3;
 const FPS        = 60;
-const LASER_DUR  = 6;
-const FREEZE     = 2;
-const BIG_FACTOR = 1.5;
-const BIG_DUR    = 6;
-const FIRE_DUR   = 12;
 const COLL_TOL   = 7;
 const SPIN       = 0.32;
 const AI_NORM    = 255;
@@ -108,18 +101,11 @@ function spawnBall(room) {
 
 function startGame(room) {
   room.phase='playing'; spawnBall(room); room.lastTick=Date.now();
-  setTimeout(()=>{
-    if(room.phase!=='playing')return; spawnItem(room,'star');
-    room.starInterval=setInterval(()=>{if(room.phase==='playing'&&room.stars.length<2)spawnItem(room,'star');},10000);
-  },12000);
+  // Only apples — spawn first after 10s, then every 12s
   setTimeout(()=>{
     if(room.phase!=='playing')return; spawnItem(room,'apple');
-    room.appleInterval=setInterval(()=>{if(room.phase==='playing'&&room.apples.length<1)spawnItem(room,'apple');},14000);
-  },20000);
-  setTimeout(()=>{
-    if(room.phase!=='playing')return; spawnItem(room,'fireball');
-    room.fireballInterval=setInterval(()=>{if(room.phase==='playing'&&room.fireballs.length<1)spawnItem(room,'fireball');},18000);
-  },28000);
+    room.appleInterval=setInterval(()=>{if(room.phase==='playing'&&room.apples.length<1)spawnItem(room,'apple');},12000);
+  },10000);
   room.interval=setInterval(()=>tick(room),1000/FPS);
 }
 
@@ -154,10 +140,8 @@ function tick(room) {
   const ball=room.ball; if(!ball)return;
 
   for(const s of room.sides) {
-    if(room.lasers[s]){room.lasers[s].t-=dt;if(room.lasers[s].t<=0)room.lasers[s]=null;}
     if(room.powerups[s]){room.powerups[s].timer-=dt;if(room.powerups[s].timer<=0)room.powerups[s]=null;}
   }
-  if(ball.fire){ball.fireTimer-=dt;if(ball.fireTimer<=0)ball.fire=false;}
 
   // Paddle velocity tracking
   for(const s of room.sides) {
@@ -189,31 +173,17 @@ function tick(room) {
   const newSpd=Math.min(curSpd+ACCEL_RATE*dt,MAX_SPD);
   if(curSpd>0){ball.vx=ball.vx/curSpd*newSpd;ball.vy=ball.vy/curSpd*newSpd;}
 
-  // Star → laser
-  room.stars=room.stars.filter(st=>{
-    if(Math.hypot(ball.x-st.x,ball.y-st.y)<BALL_R+STAR_R){if(room.lastPad)room.lasers[room.lastPad]={t:LASER_DUR};return false;}return true;
-  });
-  // Apple → big
+  // Apple → +1 life for the last paddle that hit the ball
   room.apples=room.apples.filter(ap=>{
-    if(Math.hypot(ball.x-ap.x,ball.y-ap.y)<BALL_R+APPLE_R){if(room.lastPad)room.powerups[room.lastPad]={type:'big',timer:BIG_DUR};return false;}return true;
+    if(Math.hypot(ball.x-ap.x,ball.y-ap.y)<BALL_R+APPLE_R){
+      if(room.lastPad){
+        room.lives[room.lastPad]=Math.min(room.lives[room.lastPad]+1, LIVES+2);
+        broadcast(room);
+      }
+      return false;
+    }
+    return true;
   });
-  // Fireball item → fire ball
-  room.fireballs=room.fireballs.filter(fb=>{
-    if(Math.hypot(ball.x-fb.x,ball.y-fb.y)<BALL_R+FIREBALL_R){ball.fire=true;ball.fireTimer=FIRE_DUR;return false;}return true;
-  });
-
-  // Laser collision
-  for(const side of room.sides) {
-    if(!room.lasers[side])continue;
-    const pad=room.paddles[side]; if(!pad?.alive)continue;
-    const eLen=effLen(room,side);
-    const lx=side==='left'?WALL+PAD_W+22:side==='right'?GW-WALL-PAD_W-22:null;
-    const ly=side==='top'?WALL+PAD_W+22:side==='bottom'?GH-WALL-PAD_W-22:null;
-    let hit=false;
-    if(lx!==null){const tw=(side==='left'&&ball.vx<0)||(side==='right'&&ball.vx>0);if(tw&&Math.abs(ball.x-lx)<BALL_R+3&&ball.y>=pad.pos&&ball.y<=pad.pos+eLen)hit=true;}
-    else{const tw=(side==='top'&&ball.vy<0)||(side==='bottom'&&ball.vy>0);if(tw&&Math.abs(ball.y-ly)<BALL_R+3&&ball.x>=pad.pos&&ball.x<=pad.pos+eLen)hit=true;}
-    if(hit){ball.frozen=true;ball.freezeTimer=FREEZE;ball.frozenSide=side;ball.frozenOff=(lx!==null)?ball.y-pad.pos:ball.x-pad.pos;ball.freezeVx=lx!==null?-ball.vx:ball.vx;ball.freezeVy=ly!==null?-ball.vy:ball.vy;ball.vx=0;ball.vy=0;broadcast(room);return;}
-  }
 
   if(checkBounds(room,ball))return;
   broadcast(room);
@@ -238,7 +208,6 @@ function checkBounds(room,ball) {
         const bp=isV?ball.y:ball.x;
         if(bp>=pad.pos-COLL_TOL&&bp<=pad.pos+eLen+COLL_TOL){
           pBounce(ball,s,room); room.lastPad=s; room.scores[s]++;
-          if(ball.fire){ball.fire=false;ball.fireTimer=0;room.lives[s]=0;loseLife(room,s);return true;}
         } else {loseLife(room,s);return true;}
       }
     }
@@ -274,7 +243,8 @@ function loseLife(room,side) {
 
 function endGame(room) {
   room.phase='gameover';
-  ['interval','starInterval','appleInterval','fireballInterval'].forEach(k=>clearInterval(room[k]));
+  clearInterval(room.interval);
+  clearInterval(room.appleInterval);
   const winner=room.sides.find(s=>room.paddles[s]?.alive)||null;
   io.to(room.id).emit('gameover',{winner,scores:room.scores,names:room.names});
   setTimeout(()=>delete rooms[room.id],60000);
@@ -344,7 +314,8 @@ io.on('connection',socket=>{
     if(!room)return;
     delete room.players[socket.id];
     if(room.phase==='playing'){
-      ['interval','starInterval','appleInterval','fireballInterval'].forEach(k=>clearInterval(room[k]));
+      clearInterval(room.interval);
+      clearInterval(room.appleInterval);
       room.phase='gameover';
       io.to(room.id).emit('playerLeft',{});
     }
