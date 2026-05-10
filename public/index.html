@@ -244,8 +244,8 @@ body {
 <script src="/socket.io/socket.io.js"></script>
 <script>
 // ─── Game constants (mirror server) ──────────────────────────────
-const GW=800,GH=800,WALL=14,PAD_W=14,PAD_LEN=90,BALL_R=12;
-const STAR_R=14,APPLE_R=17,FB_R=16,BIG_FACTOR=1.5;
+const GW=800,GH=800,WALL=14,PAD_W=14,PAD_LEN=180,BALL_R=12;
+const APPLE_R=17,BIG_FACTOR=1.5;
 
 const PCOL={left:'#7c6be8',right:'#f08c6e',top:'#52c9a0',bottom:'#e87db5'};
 const PNAME={left:'Левый',right:'Правый',top:'Верхний',bottom:'Нижний'};
@@ -685,7 +685,7 @@ function draw(){
     if(s==='bottom')ctx.fillRect(0,S-VW,S,VW);
 
     // Player character icon
-    const iconR=VW*.42, lv=Math.max(0,Math.min(3,lives[s]||0));
+    const iconR=VW*.42, lv=Math.max(0,Math.min(5,lives[s]||0));
     let icx,icy;
     if(s==='left')  {icx=VW*.5;icy=S/2;}
     if(s==='right') {icx=S-VW*.5;icy=S/2;}
@@ -696,7 +696,8 @@ function draw(){
 
     // Name label + lives (rotated for sides)
     ctx.save();
-    const fs=Math.max(VW*.22,8), lifeEmoji=['💀','❤️','❤️❤️','❤️❤️❤️'][lv];
+    const fs=Math.max(VW*.22,8);
+    const lifeEmoji=lv===0?'💀':'❤️'.repeat(lv);
     const nm=(names&&names[s])||PNAME[s];
     if(s==='left'){ctx.translate(VW*.5,S/2);ctx.rotate(-Math.PI/2);}
     else if(s==='right'){ctx.translate(S-VW*.5,S/2);ctx.rotate(Math.PI/2);}
@@ -783,34 +784,20 @@ function draw(){
     }
   });
 
-  // ── Stars ────────────────────────────────────────────────────
-  (stars||[]).forEach(st=>{
-    const sx=gx(st.x),sy=gy(st.y),sr=gl(STAR_R);
-    ctx.fillStyle='#ffd700'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=10*iSc;
-    star5(sx,sy,sr,sr*.42); ctx.shadowBlur=0;
-    lbl(sx,(sy+sr+7*iSc),'⚡ЛАЗЕР','rgba(255,210,0,.6)');
-  });
-
   // ── Apples ───────────────────────────────────────────────────
   (apples||[]).forEach(ap=>{
     drawApple(gx(ap.x),gy(ap.y),gl(APPLE_R));
-    lbl(gx(ap.x),(gy(ap.y)+gl(APPLE_R)+7*iSc),'🍎+РАЗМЕР','rgba(255,100,80,.65)');
-  });
-
-  // ── Fireball items ───────────────────────────────────────────
-  (fireballs||[]).forEach(fb=>{
-    drawFBItem(gx(fb.x),gy(fb.y),gl(FB_R));
-    lbl(gx(fb.x),(gy(fb.y)+gl(FB_R)+7*iSc),'🔥УДАР','rgba(255,130,0,.7)');
+    lbl(gx(ap.x),(gy(ap.y)+gl(APPLE_R)+7*iSc),'🍎 +1 жизнь','rgba(255,120,80,.8)');
   });
 
   // ── Ball trail ───────────────────────────────────────────────
   if(ball){
-    trail.push({x:ball.x,y:ball.y,t:performance.now(),fire:ball.fire});
+    trail.push({x:ball.x,y:ball.y,t:performance.now()});
     trail=trail.filter(p=>performance.now()-p.t<100);
     trail.forEach((p,i)=>{
       const a=(i/trail.length)*.18;
       ctx.beginPath(); ctx.arc(gx(p.x),gy(p.y),gl(BALL_R)*(i/trail.length)*.85,0,Math.PI*2);
-      ctx.fillStyle=p.fire?`rgba(255,120,0,${a})`:`rgba(255,255,255,${a})`; ctx.fill();
+      ctx.fillStyle=`rgba(255,255,255,${a})`; ctx.fill();
     });
   }
 
@@ -819,20 +806,8 @@ function draw(){
     const bx=gx(ball.x), by=gy(ball.y), br=gl(BALL_R)*1.35;
     const spd=Math.hypot(ball.vx||0,ball.vy||0);
     const nx=spd>0?(ball.vx||0)/spd:0, ny=spd>0?(ball.vy||0)/spd:0;
-    const state=ball.frozen?'frozen':ball.fire?'fire':'normal';
-    // Fire flame wisps
-    if(ball.fire){
-      const t3=performance.now()/120;
-      for(let i=0;i<6;i++){
-        const ang=t3+i*Math.PI/3, len=br*(1.5+.4*Math.sin(t3*2+i));
-        ctx.strokeStyle=`rgba(255,${80+Math.floor(80*Math.sin(t3+i))},0,.65)`;
-        ctx.lineWidth=2*iSc; ctx.lineCap='round';
-        ctx.beginPath(); ctx.moveTo(bx+Math.cos(ang)*br*.65,by+Math.sin(ang)*br*.65);
-        ctx.lineTo(bx+Math.cos(ang)*len,by+Math.sin(ang)*len); ctx.stroke();
-      }
-    }
+    const state=ball.frozen?'frozen':'normal';
     if(ball.frozen){
-      // Frozen ring
       const pulse=1+.15*Math.sin(performance.now()/130);
       ctx.strokeStyle='rgba(136,204,255,.4)'; ctx.lineWidth=2*iSc;
       const prog=(ball.freezeTimer||0)/2;
